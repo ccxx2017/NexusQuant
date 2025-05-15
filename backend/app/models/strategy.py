@@ -23,12 +23,15 @@ class StrategyConfig(BaseModel):
 class SelectedPoolItem(BaseModel):
     ts_code: str
     name: str
-    current_price: Optional[float] = None # 需要实时获取
-    # ... 其他选品策略输出的指标 ...
+    current_price: Optional[float] = None
     roe: Optional[float] = None
-    pb: Optional[float] = None
+    pb: Optional[float] = None # 市净率
+    pe_ttm: Optional[float] = None # 市盈率 TTM
+    dividend_yield_ratio: Optional[float] = None # 股息率 (例如 0.02 表示 2%)
+    total_mv: Optional[float] = None # 总市值（亿元）
     momentum_6m: Optional[float] = None
     composite_score: Optional[int] = None
+    # 可以添加更多策略可能需要的字段
 
 
 class SelectionPoolRequest(BaseModel):
