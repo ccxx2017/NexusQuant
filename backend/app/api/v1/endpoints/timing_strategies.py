@@ -1,83 +1,72 @@
-# backend/app/api/v1/endpoints/timing_strategies.py
+# --- START OF FILE backend/app/api/v1/endpoints/timing_strategies.py ---
 from fastapi import APIRouter, HTTPException, Body
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel # <--- 移到这里
-from app.models.strategy import StrategyConfig
+from typing import List, Dict, Any
+from app.models.timing import TimingStrategyConfig, TimingSignalRequest, TimingSignalResponse # 从新模型导入
+# 假设我们也会创建一个 TimingService
+from app.services.timing_service import TimingService 
 from datetime import datetime
-import asyncio
-import random
-
-# 临时定义模型，后续应移到 app/models/ 中
-class TimingSignalRequest(BaseModel):
-    timing_strategy_id: str
-    timing_params: Dict[str, Any]
-    stock_codes: List[str]
-
-class TimingSignalItem(BaseModel):
-    ts_code: str
-    name: Optional[str] = None
-    current_price: Optional[float] = None
-    signal_type: str
-    signal_strength: Optional[float] = None
-    trigger_time: str
-    suggestion: str
-
-class TimingSignalResponse(BaseModel):
-    signals: List[TimingSignalItem]
-    strategy_used: str
-    params_used: Dict[str, Any]
-    timestamp: str
+from app.models.strategy import StrategyParam
 
 router = APIRouter()
+timing_service = TimingService() # 实例化服务
 
+# 预设的择时策略
 PRESET_TIMING_STRATEGIES = [
-    StrategyConfig(
-        id="rsi_crossover",
+    TimingStrategyConfig(
+        id="rsi_oversold_rebound",
         name="RSI超卖反弹",
-        # ... (params 和其他内容不变)
+        description="当相对强弱指数(RSI)进入超卖区后出现反弹迹象时产生信号。",
         params=[
-            {"name": "rsi_period", "value": 14, "min_value":5, "max_value":30, "unit":'周期', "description": "RSI计算周期"},
-            {"name": "rsi_buy_threshold", "value": 30, "min_value":10, "max_value":40, "description": "RSI买入阈值"}
+            StrategyParam(name="rsi_period", label="RSI周期", value=14, type="number", min_value=5, max_value=30, step=1, unit="周期", description="RSI计算周期"),
+            StrategyParam(name="rsi_oversold_threshold", label="RSI超卖阈值", value=30, type="number", min_value=10, max_value=50, step=1, unit="", description="RSI低于此值视为超卖"),
+            # 之前的 rsi_rebound_confirmation_days 可以考虑后续再加入，或者简化逻辑
         ],
-        tags=["技术指标", "反转"],
-        historical_performance_summary={"win_rate": "60%", "profit_loss_ratio": "1.8"}
+        tags=["技术指标", "反转", "RSI"]
     ),
-    StrategyConfig(
-        id="bb_breakout",
-        name="波动率压缩突破",
-        # ... (params 和其他内容不变)
+    TimingStrategyConfig(
+        id="ma_cross", # 之前可能是 ma_golden_cross，统一为 ma_cross，具体金叉死叉由信号类型区分
+        name="均线交叉",
+        description="当短期均线上穿或下穿长期均线时产生信号。",
         params=[
-            {"name": "bb_period", "value": 20, "min_value":10, "max_value":60, "unit":'周期', "description": "布林带计算周期"},
-            {"name": "bb_std_dev", "value": 2, "min_value":1, "max_value":3, "unit":'标准差倍数', "description": "布林带标准差倍数"}
+            StrategyParam(name="short_ma_period", label="短期均线周期", value=5, type="number", min_value=3, max_value=60, step=1, unit="日", description="短期移动平均线计算周期"),
+            StrategyParam(name="long_ma_period", label="长期均线周期", value=20, type="number", min_value=10, max_value=200, step=1, unit="日", description="长期移动平均线计算周期"),
+            StrategyParam(name="enable_volume_filter", label="启用成交量确认", value=False, type="boolean", description="是否要求信号日成交量放大"),
+            StrategyParam(name="volume_avg_days", label="成交量平均N日", value=10, type="number", min_value=3, max_value=30, step=1, unit="日", description="计算N日平均成交量"),
+            StrategyParam(name="volume_multiple", label="成交量放大倍数", value=1.5, type="number", min_value=1.0, max_value=5.0, step=0.1, unit="倍", description="当日成交量需大于N日均量的此倍数"),
         ],
-        tags=["波动率", "突破"],
-        historical_performance_summary={"win_rate": "55%", "profit_loss_ratio": "2.1"}
+        tags=["技术指标", "趋势", "均线"]
     ),
 ]
 
-@router.get("/strategies", response_model=List[StrategyConfig]) # <--- 修改这里
-async def get_timing_strategies_endpoint(): # 函数名可以更具体一点
+@router.get("/strategies", response_model=List[TimingStrategyConfig])
+async def get_timing_strategies_endpoint():
+    """获取所有预设的择时策略配置"""
     return PRESET_TIMING_STRATEGIES
 
 @router.post("/generate_signals", response_model=TimingSignalResponse)
-async def generate_timing_signals_endpoint(request: TimingSignalRequest = Body(...)): # 函数名可以更具体
-    await asyncio.sleep(0.1)
-    mock_signals = []
-    for code in request.stock_codes[:2]:
-        mock_signals.append(
-            TimingSignalItem(
-                ts_code=code,
-                name=f"股票{code.split('.')[0]} (模拟)",
-                current_price=round(random.uniform(10, 100), 2),
-                signal_type="模拟择时信号",
-                signal_strength=round(random.uniform(0.5, 0.9), 2),
-                trigger_time=datetime.now().isoformat(),
-                suggestion="观察" if random.random() > 0.5 else "买入"
-            )
+async def generate_timing_signals_endpoint(request: TimingSignalRequest = Body(...)):
+    """根据选择的策略和标的列表，生成择时信号"""
+    try:
+        current_time = datetime.now()
+        signal_items, data_last_date = await timing_service.generate_signals_for_targets(
+            target_tickers=request.target_tickers,
+            strategy_id=request.strategy_id,
+            params=request.params
         )
-    return TimingSignalResponse(
-        signals=mock_signals,
-        strategy_used=request.timing_strategy_id,
-        params_used=request.timing_params,
-        timestamp=datetime.now().isoformat()
-    )
+        return TimingSignalResponse(
+            signals=signal_items,
+            strategy_used=request.strategy_id,
+            params_used=request.params,
+            request_timestamp=current_time.isoformat(),
+            data_timestamp=data_last_date
+        )
+    except ValueError as e:
+        # 例如策略ID不存在
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import traceback
+        print(f"Error in generate_timing_signals_endpoint: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error generating timing signals: {str(e)}")
+
+# --- END OF FILE backend/app/api/v1/endpoints/timing_strategies.py ---

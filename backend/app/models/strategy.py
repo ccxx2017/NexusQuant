@@ -1,14 +1,32 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel,Field
+from typing import Any, Optional, Literal, Union,List,Dict
 
 class StrategyParam(BaseModel):
-    name: str
-    value: Any
-    min_value: Optional[Any] = None
-    max_value: Optional[Any] = None
-    step: Optional[Any] = None
+    name: str # 参数的内部标识名，例如 "rsi_period"
+    label: str # 参数在UI上显示的名称，例如 "RSI周期"
+    value: Any # 参数的当前/默认值
+    
+    # type 字段用于指导UI渲染和后端处理
+    # "number" -> el-slider / el-input-number
+    # "boolean" -> el-switch
+    # "string" -> el-input
+    # "select" -> el-select (需要配合 options 字段)
+    type: Literal["number", "boolean", "string", "select"] = "number" 
+
+    # 仅当 type == "number" 时以下字段有意义
+    min_value: Optional[Union[float, int]] = None
+    max_value: Optional[Union[float, int]] = None
+    step: Optional[Union[float, int]] = None
     unit: Optional[str] = None
+    
+    # 仅当 type == "select" 时以下字段有意义
+    options: Optional[List[Dict[str, Any]]] = None # 例如 [{"label": "选项1", "value": "opt1"}, ...]
+    
     description: Optional[str] = None
+
+    # 可以添加一个 validator 来确保当 type="number" 时，min/max/step 是数字类型
+    # 并且当 type="select" 时，options 存在
+    # 但为了保持简单，暂时不加，依赖于策略定义者的正确配置
 
 class StrategyConfig(BaseModel):
     id: str

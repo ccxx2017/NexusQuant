@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # --- 关键检查点 ---
     BACKEND_CORS_ORIGINS_STR: Optional[str] = Field(default="http://localhost:5173,http://127.0.0.1:5173", env="BACKEND_CORS_ORIGINS")
     TUSHARE_TOKEN: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
+    # 新增数据库配置
+    SQLALCHEMY_DATABASE_URL: str = "sqlite:///./quant_assistant.db" # SQLite 文件将创建在项目根目录
+
 
     @property
     def BACKEND_CORS_ORIGINS(self) -> List[str]:
@@ -43,6 +46,7 @@ class Settings(BaseSettings):
         # 则不需要 env_prefix 或 case_sensitive。
         # 如果环境变量名与字段名不同，则需要使用 Field(env=...)
         # case_sensitive = True # Pydantic v1 默认为 False，可以不设置或按需设置
+        env_file = ".env"
         env_file_encoding = 'utf-8' # 如果你的 .env 文件是 utf-8 编码
 
 settings = Settings()

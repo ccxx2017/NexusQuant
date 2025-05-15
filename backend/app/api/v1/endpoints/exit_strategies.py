@@ -1,118 +1,134 @@
-# backend/app/api/v1/endpoints/exit_strategies.py
-from fastapi import APIRouter, HTTPException, Body
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
-from app.models.strategy import StrategyConfig # 假设 StrategyConfig 在 strategy.py
+# --- START OF FILE backend/app/api/v1/endpoints/exit_strategies.py ---
+from fastapi import APIRouter, HTTPException, Body, Depends
+from typing import List, Dict, Any
+from sqlalchemy.orm import Session
+from app.db.database import get_db # 用于数据库会话依赖注入
+from app.models.exit import ( # 从我们新创建的模型文件导入
+    ExitStrategyConfig, 
+    HoldingItemCreate, 
+    HoldingItem as HoldingItemResponse, # Pydantic模型用于响应
+    ExitSignalRequest, 
+    ExitSignalResponse
+)
+# 假设我们也会创建一个 ExitService
+from app.services.exit_service import ExitService
 from datetime import datetime
-import asyncio
-import random
-
-# 临时定义模型，后续应移到 app/models/ 中
-class HoldingItem(BaseModel):
-    ts_code: str
-    name: Optional[str] = None
-    cost_price: float
-    quantity: int
-    current_price: float # 当前价格，用于计算信号
-
-class ExitSignalRequest(BaseModel):
-    exit_strategy_id: str
-    exit_params: Dict[str, Any]
-    holdings: List[HoldingItem] # 用户当前的持仓列表
-
-class ExitSignalItem(BaseModel):
-    ts_code: str
-    name: Optional[str] = None
-    signal: Optional[str] = None # 例如 "触发止盈", "达到止损", "ATR追踪卖点"
-    details: Optional[Dict[str, Any]] = None # 更详细的信号信息
-
-class ExitSignalResponse(BaseModel):
-    signals: List[ExitSignalItem]
-    strategy_used: str
-    params_used: Dict[str, Any]
-    timestamp: str
-
+from app.models.strategy import StrategyParam 
 
 router = APIRouter()
+exit_service = ExitService() # 实例化服务
 
-# 预设的退出策略配置 (实际应从DB或配置文件/服务层加载)
+# 预设的退出策略 (与选品、择时类似)
+# 预设的退出策略
 PRESET_EXIT_STRATEGIES = [
-    StrategyConfig(
-        id="dynamic_sl_tp", # dynamic_stop_profit_loss
-        name="动态止盈止损",
-        description="设置固定的止盈和止损百分比。",
+    ExitStrategyConfig(
+        id="fixed_profit_loss",
+        name="固定比例止盈止损",
+        description="当持仓达到预设的止盈百分比或止损百分比时触发退出信号。",
         params=[
-            {"name": "take_profit_percent", "value": 20, "min_value":5, "max_value":100, "unit":'%', "description": "止盈百分比"},
-            {"name": "stop_loss_percent", "value": 10, "min_value":1, "max_value":50, "unit":'%', "description": "止损百分比"}
+            StrategyParam(name="take_profit_percent", label="止盈百分比", value=20.0, type="number", min_value=1.0, max_value=200.0, step=1.0, unit="%", description="从成本价计算的止盈目标百分比"),
+            StrategyParam(name="stop_loss_percent", label="止损百分比", value=-10.0, type="number", min_value=-100.0, max_value=-1.0, step=1.0, unit="%", description="从成本价计算的止损目标百分比 (负数)"),
         ],
-        tags=["固定比例"],
-        # historical_performance_summary 可以不填，因为它通常作用于已有持仓
+        tags=["风险管理", "止盈", "止损"]
     ),
-    StrategyConfig(
-        id="atr_trailing_stop",
-        name="ATR追踪止损",
-        description="使用ATR指标动态调整止损位。",
-        params=[
-            {"name": "atr_period", "value": 14, "min_value":5, "max_value":30, "unit":'周期', "description": "ATR计算周期"},
-            {"name": "atr_multiplier", "value": 3, "min_value":1, "max_value":5, "unit":'倍数', "description": "ATR倍数"}
-        ],
-        tags=["动态追踪", "波动率"],
-    ),
+    # 未来可以添加更多退出策略，例如：
+    # ExitStrategyConfig(id="trailing_stop_loss", name="移动止损", ...),
 ]
 
-@router.get("/exit/strategies", response_model=List[StrategyConfig])
-async def get_exit_strategies():
-    """
-    获取预设的退出策略列表。
-    """
+@router.get("/strategies", response_model=List[ExitStrategyConfig])
+async def get_exit_strategies_endpoint():
+    """获取所有预设的退出策略配置"""
     return PRESET_EXIT_STRATEGIES
 
-@router.post("/exit/check_signals", response_model=ExitSignalResponse)
-async def check_exit_signals_for_holdings(request: ExitSignalRequest = Body(...)):
-    """
-    根据选定的退出策略、参数和用户持仓，检查是否有退出信号。
-    核心业务逻辑应在服务层实现。
-    """
-    # print(f"Received exit signal check request: {request.dict()}")
-    # 模拟调用服务层
-    # signals_data = await strategy_service.check_exit_signals(
-    #     strategy_id=request.exit_strategy_id,
-    #     params=request.exit_params,
-    #     holdings=request.holdings
-    # )
+# --- 持仓管理 CRUD 操作 ---
+@router.post("/holdings", response_model=HoldingItemResponse, status_code=201)
+async def create_holding_endpoint(
+    holding_data: HoldingItemCreate, 
+    db: Session = Depends(get_db)
+):
+    """添加一个新的持仓记录"""
+    try:
+        created_holding = await exit_service.create_holding(db=db, holding_data=holding_data)
+        return created_holding
+    except ValueError as e: # 例如股票代码不存在
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating holding: {str(e)}")
 
-    # --- START: 模拟返回数据 (请替换为真实逻辑) ---
-    await asyncio.sleep(0.1) # 模拟IO
-    mock_signals_result = []
-    for holding in request.holdings:
-        signal_text = None
-        profit_loss_percent = ((holding.current_price - holding.cost_price) / holding.cost_price) * 100
+@router.get("/holdings", response_model=List[HoldingItemResponse])
+async def get_all_holdings_endpoint(
+    db: Session = Depends(get_db),
+    skip: int = 0, # 分页参数
+    limit: int = 100 # 分页参数
+):
+    """获取所有持仓记录 (带最新价格和盈亏信息)"""
+    holdings_with_details = await exit_service.get_all_holdings_with_details(db=db, skip=skip, limit=limit)
+    return holdings_with_details
+    
+@router.get("/holdings/{holding_id}", response_model=HoldingItemResponse)
+async def get_holding_by_id_endpoint(
+    holding_id: int, 
+    db: Session = Depends(get_db)
+):
+    """根据ID获取单个持仓记录 (带最新价格和盈亏信息)"""
+    holding = await exit_service.get_holding_with_details_by_id(db=db, holding_id=holding_id)
+    if holding is None:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    return holding
 
-        if request.exit_strategy_id == "dynamic_sl_tp":
-            take_profit = request.exit_params.get("take_profit_percent", 20)
-            stop_loss = request.exit_params.get("stop_loss_percent", 10)
-            if profit_loss_percent >= take_profit:
-                signal_text = f"达到止盈({take_profit}%)"
-            elif profit_loss_percent <= -stop_loss:
-                signal_text = f"触发止损({stop_loss}%)"
-        elif request.exit_strategy_id == "atr_trailing_stop":
-            # 模拟ATR逻辑，实际需要历史数据计算ATR
-            if profit_loss_percent < -random.uniform(5,15): # 模拟ATR追踪
-                 signal_text = "ATR追踪卖点"
+@router.put("/holdings/{holding_id}", response_model=HoldingItemResponse)
+async def update_holding_endpoint(
+    holding_id: int, 
+    holding_data: HoldingItemCreate, # 使用Create模型作为更新，也可以定义专门的Update模型
+    db: Session = Depends(get_db)
+):
+    """更新指定的持仓记录"""
+    updated_holding = await exit_service.update_holding(db=db, holding_id=holding_id, holding_data=holding_data)
+    if updated_holding is None:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    return updated_holding
 
-        mock_signals_result.append(
-            ExitSignalItem(
-                ts_code=holding.ts_code,
-                name=holding.name or f"股票{holding.ts_code.split('.')[0]}",
-                signal=signal_text,
-                details={"current_pnl_percent": round(profit_loss_percent,2)} if signal_text else None
-            )
+@router.delete("/holdings/{holding_id}", status_code=204) # 204 No Content
+async def delete_holding_endpoint(
+    holding_id: int, 
+    db: Session = Depends(get_db)
+):
+    """删除指定的持仓记录"""
+    success = await exit_service.delete_holding(db=db, holding_id=holding_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Holding not found or could not be deleted")
+    return # FastAPI 会自动处理 204 的空响应体
+
+# --- 退出信号生成 ---
+@router.post("/check_signals", response_model=ExitSignalResponse)
+async def check_exit_signals_endpoint(
+    request: ExitSignalRequest = Body(...),
+    db: Session = Depends(get_db) # 如果需要从数据库读取持仓
+):
+    """根据选择的退出策略和持仓，检查退出信号"""
+    try:
+        current_time = datetime.now()
+        # ExitService 将负责从数据库获取持仓（如果 request.holding_ids 为 None 或空）
+        # 或者只处理 request.holding_ids 中指定的持仓
+        signal_items, data_last_date = await exit_service.check_exit_signals_for_holdings(
+            db=db,
+            holding_ids=request.holding_ids,
+            strategy_id=request.strategy_id,
+            params=request.params
         )
-    # --- END: 模拟返回数据 ---
+        return ExitSignalResponse(
+            signals=signal_items,
+            strategy_used=request.strategy_id,
+            params_used=request.params,
+            request_timestamp=current_time.isoformat(),
+            data_timestamp=data_last_date
+        )
+    except ValueError as e: # 例如策略ID不存在或持仓不存在
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import traceback
+        print(f"Error in check_exit_signals_endpoint: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error checking exit signals: {str(e)}")
 
-    return ExitSignalResponse(
-        signals=mock_signals_result,
-        strategy_used=request.exit_strategy_id,
-        params_used=request.exit_params,
-        timestamp=datetime.now().isoformat()
-    )
+# --- END OF FILE backend/app/api/v1/endpoints/exit_strategies.py ---

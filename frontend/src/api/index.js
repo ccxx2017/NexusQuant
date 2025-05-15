@@ -39,10 +39,14 @@ export const fetchTimingStrategies = () => apiClient.get('/timing/strategies');
 export const generateTimingSignals = (data) => apiClient.post('/timing/generate_signals', data); // 假设有此API
 
 // --- Exit Strategy APIs ---
-// export const fetchExitStrategies = () => apiClient.get('/exit/strategies');
-// export const checkExitSignalsForHoldings = (data) => apiClient.post('/exit/check_signals', data);
-export const fetchExitStrategies = () => apiClient.get('/exit/strategies'); // 后端需要实现
-export const checkExitSignalsForHoldings = (data) => apiClient.post('/exit/check_signals', data); // 后端需要实现
+export const fetchExitStrategies = () => apiClient.get('/exit/strategies');
+export const createHolding = (data) => apiClient.post('/exit/holdings', data);
+export const fetchHoldings = (params) => apiClient.get('/exit/holdings', { params }); // params for pagination if needed
+export const fetchHoldingById = (id) => apiClient.get(`/exit/holdings/${id}`);
+export const updateHolding = (id, data) => apiClient.put(`/exit/holdings/${id}`, data);
+export const deleteHolding = (id) => apiClient.delete(`/exit/holdings/${id}`);
+export const checkExitSignalsForHoldings = (data) => apiClient.post('/exit/check_signals', data);
+
 // --- Backtesting Lab APIs ---
 export const runBacktest = (data) => apiClient.post('/backtesting_lab/run_backtest', data);
 // export const getBacktestStatus = (taskId) => apiClient.get(`/backtesting_lab/status/${taskId}`);

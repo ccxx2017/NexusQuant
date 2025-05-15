@@ -15,11 +15,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api_v1 import api_router as api_v1_router
 from app.core.config import settings
+from app.db.database import create_db_and_tables # 新增导入
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# 调用创建数据库和表的函数
+# 注意: 确保这个调用在应用实际启动并开始处理请求之前执行
+# 对于 uvicorn，它通常在模块加载时执行一次即可
+# 如果担心重复创建，可以在 create_db_and_tables 内部做检查
+create_db_and_tables() # <--- 新增调用
 
 # CORS 中间件配置
 if settings.BACKEND_CORS_ORIGINS:
@@ -35,7 +43,7 @@ app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the Quant Assistant API!"}
+    return {"message": f"Welcome to {settings.PROJECT_NAME}!"}
 
 # (可选) 在应用启动时初始化Tushare客户端等
 # @app.on_event("startup")

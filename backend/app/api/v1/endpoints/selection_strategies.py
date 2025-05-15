@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Body
 from typing import List, Dict, Any
 from app.models.strategy import StrategyConfig, SelectionPoolRequest, SelectionPoolResponse
+from app.models.strategy import StrategyConfig, StrategyParam
 from app.services.strategy_service import StrategyService
 from datetime import datetime
 
@@ -10,31 +11,30 @@ strategy_service = StrategyService()
 
 PRESET_SELECTION_STRATEGIES = [
     StrategyConfig(
-        id="value_momentum",
-        name="动量质量双引擎",
-        description="结合价值与动量因子，筛选具备增长潜力的标的。",
+        id="simple_value",
+        name="简单价值筛选",
+        description="根据市盈率(PE-TTM)和市净率(PB)进行初步价值筛选。",
         params=[
-            {"name": "momentum_window_months", "value": 6, "min_value": 3, "max_value": 24, "step": 1, "unit": "个月", "description": "动量回溯窗口"},
-            {"name": "min_momentum_percent", "value": 5, "min_value": -50, "max_value": 100, "step": 1, "unit": "%", "description": "最小动量阈值(%)"}, # 新增参数
-            {"name": "roe_threshold_percent", "value": 15, "min_value": 5, "max_value": 30, "step": 1, "unit": "%", "description": "ROE阈值"},
-            {"name": "max_pb_value", "value": 2.5, "min_value": 0.1, "max_value": 5.0, "step": 0.1, "unit": "", "description": "最大市净率(PB)"}
+            StrategyParam(name="max_pe_ttm", label="最大PE(TTM)", value=20, type="number", min_value=1, max_value=100, step=1, unit="倍"),
+            StrategyParam(name="min_pb_value", label="最小PB", value=0.5, type="number", min_value=0.1, max_value=5, step=0.1, unit="倍"),
+            StrategyParam(name="min_dividend_yield_ratio", label="最小股息率", value=2.0, type="number", min_value=0, max_value=15, step=0.1, unit="%"),
+            StrategyParam(name="min_market_cap_billion", label="最小市值(亿元)", value=50, type="number", min_value=0, max_value=10000, step=10, unit="亿"),
+            StrategyParam(name="exclude_st", label="排除ST股", value=True, type="boolean"),
         ],
-        tags=["价值", "动量", "质量"],
-        historical_performance_summary={"annual_return": "18%", "max_drawdown": "-15%"}
+        tags=["价值", "基本面", "PE", "PB"]
     ),
     StrategyConfig(
-        id="simple_value_screen",
-        name="简单价值筛选",
-        description="根据市盈率、市净率和股息率进行基础价值筛选。",
+        id="value_momentum",
+        name="动量质量双引擎",
+        description="结合价值因子(PB)、质量因子(ROE)和动量因子进行综合筛选。",
         params=[
-            {"name": "max_pe_ttm", "value": 30, "min_value": 1, "max_value": 100, "step": 1, "unit": "", "description": "最大市盈率(TTM)"},
-            {"name": "max_pb", "value": 2.0, "min_value": 0.1, "max_value": 10.0, "step": 0.1, "unit": "", "description": "最大市净率"},
-            {"name": "min_dividend_yield", "value": 2.0, "min_value": 0.0, "max_value": 10.0, "step": 0.1, "unit": "%", "description": "最小股息率(%)"},
-            {"name": "min_total_mv_billions", "value": 50, "min_value": 0, "max_value": 1000, "step": 10, "unit": "亿", "description": "最小总市值(亿元)"}
+            StrategyParam(name="momentum_window_months", label="动量回溯窗口", value=6, type="number", min_value=1, max_value=24, step=1, unit="个月"),
+            StrategyParam(name="min_momentum_percent", label="最小动量阈值", value=5.0, type="number", min_value=-50, max_value=200, step=1, unit="%"),
+            StrategyParam(name="roe_threshold_percent", label="ROE阈值", value=10.0, type="number", min_value=0, max_value=50, step=1, unit="%"),
+            StrategyParam(name="max_pb_value", label="最大PB", value=2.5, type="number", min_value=0.1, max_value=10, step=0.1, unit="倍"),
         ],
-        tags=["价值", "基本面"],
-        historical_performance_summary={"annual_return": "N/A", "max_drawdown": "N/A"}
-    ),
+        tags=["价值", "动量", "质量", "ROE", "PB"]
+    )
 ]
 
 @router.get("/strategies", response_model=List[StrategyConfig])
